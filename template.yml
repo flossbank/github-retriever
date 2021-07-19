@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Fetches package manifest files from GitHub repositories
+Parameters:
+  MongoUri:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: '/api/db/mongo_uri'
+  GitHubAppPEM:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: '/api/github/app_pem'
+  GitHubAppID:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: '/api/github/app_id'
+Resources:
+  GitHubRetrieverDeadLetterQueue:
+    Type: AWS::SQS::Queue
+  GitHubRetrieverQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: github-retriever-input
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt GitHubRetrieverDeadLetterQueue.Arn
+        maxReceiveCount: 3
+      VisibilityTimeout: 960
+  GitHubRetrieverFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Timeout: 900
+      Handler: index.handler
+      Runtime: nodejs12.x
+      CodeUri: ./
+      Events:
+        GitHubRetrieverEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt GitHubRetrieverQueue.Arn
+            BatchSize: 1
+      Policies:
+        - AmazonS3FullAccess
+        - AmazonSQSFullAccess
+        - Statement:
+          - Effect: Allow
+            Action:
+              - 'kms:Decrypt'
+              - 'kms:ListKeys'
+            Resource: '*'
+      Environment:
+        Variables:
+          MONGO_URI: !Ref MongoUri
+          GITHUB_APP_PEM: !Ref GitHubAppPEM
+          GITHUB_APP_ID: !Ref GitHubAppID
